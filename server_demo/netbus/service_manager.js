@@ -17,18 +17,30 @@ function register_service(stype, service) {
 }
 //接收到消息进行分发
 function on_recv_client_cmd(session, str_or_buf) {
+	if (session.is_encrypt) {
+		str_or_buf = Proto_man.decrypt_cmd(str_or_buf);	
+	}
 	//解码解出对象
-	var cmd = Proto_man.decode_cmd(session.proto_type, str_or_buf);
+	var cmd = Proto_man.decode_cmd_header(session.proto_type, str_or_buf);
 	if (!cmd) {
 		return false;
 	}
 	var stype, ctype, body;
 	stype = cmd[0];
 	ctype = cmd[1];
-	body = cmd[2];
-	if (service_modules[stype]) {
-		service_modules[stype].on_recv_player_cmd(session, ctype, body);
+	if (!service_modules[stype]) {
+		return false;
 	}
+	if (service_modules[stype].is_transfer) {
+		service_modules[stype].on_recv_player_cmd(session, ctype, null, str_or_buf);
+	}
+	var cmd = Proto_man.decode_cmd(session.proto_type, str_or_buf);
+	if (!cmd) {
+		return false;
+	}
+	// end 
+	body = cmd[2];
+	service_modules[stype].on_recv_player_cmd(session, ctype, body, str_or_buf);
 	return true;
 }
 //玩家掉线了

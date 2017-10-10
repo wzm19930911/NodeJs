@@ -5,14 +5,14 @@
 var service = {
 	stype: 1, //服务号
 	name: "service login", //服务名称
-
+	is_transfer: false, // 是否为转发模块,
 	//初始化服务
 	init: function () {
 			
 	},
 
-	//接收玩家消息
-	on_recv_player_cmd: function(session, ctype, body) {
+	// 每个服务收到数据的时候调用
+	on_recv_player_cmd: function(session, ctype, body, raw_cmd) {
 	},
 
 	//玩家掉线

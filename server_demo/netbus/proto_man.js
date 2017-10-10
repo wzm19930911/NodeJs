@@ -11,6 +11,7 @@
 (6)utf8
 */
 var Log = require("./../utils/log");
+var Proto_tools = require("./proto_tools.js");
 var proto_man = {
 	PROTO_JSON: 1,  
 	PROTO_BUF: 2,
@@ -18,6 +19,10 @@ var proto_man = {
 	decode_cmd: decode_cmd,
 	reg_decoder: reg_buf_decoder,
 	reg_encoder: reg_buf_encoder,
+    decrypt_cmd: decrypt_cmd,  //代码加密防侧漏
+    encrypt_cmd: encrypt_cmd,
+
+    decode_cmd_header: decode_cmd_header,
 };
 // 加密
 function encrypt_cmd(str_of_buf) {
@@ -31,21 +36,22 @@ function decrypt_cmd(str_of_buf) {
 //json打包
 function json_encode(stype, ctype, body) {
     var cmd = {};
-    cmd[0] = stype;
-    cmd[1] = ctype;
-    cmd[2] = body;
-
+    cmd[0] = body;
     var str = JSON.stringify(cmd);
-    return str;
+        // stype, ctype, str, 打入到我们的buffer
+    var cmd_buf = Proto_tools.encode_str_cmd(stype, ctype, str);
+    return cmd_buf;
 }
 //json解包
 function json_decode(cmd_json) {
-    var cmd = null;
+    var cmd = Proto_tools.decode_str_cmd(cmd_json);
+    var cmd_json = cmd[2];
     try {
-        cmd = JSON.parse(cmd_json);
+        var body_set = JSON.parse(cmd_json);
+        cmd[2] = body_set[0];
     }
     catch (e) {
-
+        return null;
     }
     if (!cmd ||
         typeof (cmd[0]) == "undefined" ||
@@ -81,18 +87,33 @@ function encode_cmd(proto_type, stype, ctype, body) {
         }
         buf = encoders[key](body);
     }
-    if (buf) {
+    /*if (buf) {
 
         buf = encrypt_cmd(buf);
-    }
+    }*/
     return buf;
+}
+function  decode_cmd_header(proto_type, cmd_buf) {
+    var cmd = {};
+
+    if (cmd_buf.length < Proto_tools.header_size) {
+        return null;
+    }
+
+    
+    cmd[0] = Proto_tools.read_int16(cmd_buf, 0);
+    cmd[1] = Proto_tools.read_int16(cmd_buf, 2);
+    
+    return cmd;
 }
 // 参数1: 协议类型
 // 参数2: 接手到的数据命令
 // 返回: {0: stype, 1, ctype, 2: body}
 function decode_cmd(proto_type, str_or_buf) {
-	str_of_buf = decrypt_cmd(str_or_buf); // 解密
-
+	//str_of_buf = decrypt_cmd(str_or_buf); // 解密
+    if (str_or_buf.length < Proto_tools.header_size) {
+        return null;
+    }
 	if (proto_type == proto_man.PROTO_JSON) {
 		return json_decode(str_or_buf);
 	}

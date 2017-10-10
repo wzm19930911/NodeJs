@@ -19,7 +19,7 @@ var global_session_list = {};
 //初始从1开始往上加
 var global_session_key = 1;
 //session进来了
-function on_session_entry(session, proto_type, is_ws) {
+function on_session_entry(session, proto_type, is_ws,is_encrypt) {
     if (is_ws) {
         Log.info("client connected!\n port:" + session._socket.remotePort + "\nhost:" + session._socket.remoteAddress);
     } else {
@@ -27,8 +27,12 @@ function on_session_entry(session, proto_type, is_ws) {
     }
     session.last_pkg = null; // 表示我们存储的上一次没有处理完的TCP包;
     session.is_ws = is_ws;
-    session.proto_type = proto_type;
-    session.is_conenct = true
+    session.proto_type = proto_type; //协议类型
+    session.is_connected = true;       //是否已经连接
+    session.is_encrypt = is_encrypt; //是否属于加密通道
+    //扩展session的方法
+    session.send_encoded_cmd = session_send_encoded_cmd; //发送带加密的
+    session.send_cmd = session_send_cmd;  //发送cmd
     // 加入到session列表里面
     global_session_list[global_session_key] = session;
     session.session_key = global_session_key;
@@ -42,7 +46,7 @@ function on_session_exit(session) {
         global_session_list[session.session_key] = null;
         delete global_session_list[session.session_key]; // 把这个key, value从{}里面删除
         session.session_key = null;
-        session.is_conenct = false;
+        session.is_connected = false;
     }
 };
 // 一定能够保证是一个整包;
@@ -52,10 +56,25 @@ function on_session_recv_cmd(session, str_or_buf) {
     Log.info(str_or_buf);
     Service_manager.on_recv_client_cmd(session,str_or_buf);
 }
-// 发送命令
-function session_send(session, cmd) {
-    if(!session.is_conenct){
+// 发送命令  修改成了session的结构体的方法
+function session_send_cmd(stype, ctype, body) {  //服务器类型 对应的操作 内容
+    if(!this.is_connected){
         return;
+    }
+    var cmd = null;
+    cmd = Proto_man.encode_cmd(this.proto_type, stype, ctype, body);
+    if (cmd) {
+        this.send_encoded_cmd(cmd);
+    }
+    
+}
+//发送带加密的命令
+function session_send_encoded_cmd(cmd){
+    if (!this.is_connected) {
+        return;
+    }
+    if(this.is_encrypt) {
+        cmd = Proto_man.encrypt_cmd(cmd);   
     }
     if (!session.is_ws) { //如果不是websocket的话要先进行封包
         var data = Netpkg.packData(cmd);
@@ -77,7 +96,7 @@ function session_close(session) {
     }
 }
 //添加客户端的监听
-function tcp_add_client_session_event(session, proto_type) {
+function tcp_add_client_session_event(session, proto_type,is_encrypt) {
     // client_sock.setEncoding("utf8"); //设置接收的格式
     session.on("close", function () {
         console.log("client leave");
@@ -141,13 +160,13 @@ function tcp_add_client_session_event(session, proto_type) {
         }
         client_sock.last_pkg = last_pkg;
     });
-    on_session_entry(session, proto_type, false);
+    on_session_entry(session, proto_type, false,is_encrypt);
 }
 //开始一个tcp服务器
-function start_tcp_server(ip, port, prototype) {
+function start_tcp_server(ip, port, prototype,is_encrypt) {
     Log.info("start tcp server..", ip, port);
     var server = Net.createServer(function (session) {
-        add_client_session_event(session, prototype);//监听客户端事件
+        add_client_session_event(session, prototype,is_encrypt);//监听客户端事件
     });
     //监听在端口
     server.listen({  //option 对象集
@@ -169,7 +188,7 @@ function isString(obj){ //判断对象是否是字符串
 	return Object.prototype.toString.call(obj) === "[object String]";  
 }  
 //websocket监听
-function ws_add_client_session_event(session, prototype) {
+function ws_add_client_session_event(session, prototype,is_encrypt) {
 	// close事件
 	session.on("close", function() {
 		on_session_exit(session);
@@ -195,11 +214,11 @@ function ws_add_client_session_event(session, prototype) {
 		}	
 	});
 	// end
-	on_session_entry(session, prototype, true); 
+	on_session_entry(session, prototype, true,is_encrypt); 
 }
 
 //开启一个ws服务器
-function start_ws_server(ip, port, prototype) {
+function start_ws_server(ip, port, prototype,is_encrypt) {
     Log.info("start ws server..", ip, port);
     var server = new ws.Server({
         host: ip,
@@ -207,7 +226,7 @@ function start_ws_server(ip, port, prototype) {
     });
     //客户端进入
     function on_server_client_comming(client_sock) {
-        ws_add_client_session_event(client_sock, prototype);
+        ws_add_client_session_event(client_sock, prototype,is_encrypt);
     }
     server.on("connection", on_server_client_comming);
     //监听出错
