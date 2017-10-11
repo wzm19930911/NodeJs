@@ -34,7 +34,7 @@ function decrypt_cmd(str_of_buf) {
 }
 //---------------------------json---------------------------
 //json打包
-function json_encode(stype, ctype, body) {
+function _json_encode(stype, ctype, body) {
     var cmd = {};
     cmd[0] = body;
     var str = JSON.stringify(cmd);
@@ -43,8 +43,8 @@ function json_encode(stype, ctype, body) {
     return cmd_buf;
 }
 //json解包
-function json_decode(cmd_json) {
-    var cmd = Proto_tools.decode_str_cmd(cmd_json);
+function _json_decode(cmd_buf) {
+    var cmd = Proto_tools.decode_str_cmd(cmd_buf);
     var cmd_json = cmd[2];
     try {
         var body_set = JSON.parse(cmd_json);
@@ -76,21 +76,20 @@ function get_key(stype, ctype) {
 // 参数3: 命令号;
 // 参数4: 发送的数据本地，js对象/js文本，...
 // 返回是一段编码后的数据;
-function encode_cmd(proto_type, stype, ctype, body) {
+function encode_cmd(utag,proto_type, stype, ctype, body) {
     var buf = null;
     if (proto_type == proto_man.PROTO_JSON) {
-        buf = json_encode(stype, ctype, body);
+        buf = _json_encode(stype, ctype, body);
     } else {
         var key = get_key(stype, ctype);
         if (!encoders[key]) {
             return null;
         }
-        buf = encoders[key](body);
+        buf = encoders[key](stype, ctype, body);
     }
-    /*if (buf) {
-
-        buf = encrypt_cmd(buf);
-    }*/
+    proto_tools.write_utag_inbuf(buf, utag);
+    proto_tools.write_prototype_inbuf(buf, proto_type);
+     //加密
     return buf;
 }
 function  decode_cmd_header(proto_type, cmd_buf) {
@@ -98,36 +97,31 @@ function  decode_cmd_header(proto_type, cmd_buf) {
 
     if (cmd_buf.length < Proto_tools.header_size) {
         return null;
-    }
-
-    
-    cmd[0] = Proto_tools.read_int16(cmd_buf, 0);
-    cmd[1] = Proto_tools.read_int16(cmd_buf, 2);
-    
+    } 
+    cmd[0] = Proto_tools.read_int16(cmd_buf, 0); //stype
+    cmd[1] = Proto_tools.read_int16(cmd_buf, 2); //ctype
+    cmd[2] = Proto_tools.read_uint32(cmd_buf, 4); //utag
+    cmd[3] = Proto_tools.read_int16(cmd_buf, 8); //proto_type
     return cmd;
 }
-// 参数1: 协议类型
-// 参数2: 接手到的数据命令
-// 返回: {0: stype, 1, ctype, 2: body}
-function decode_cmd(proto_type, str_or_buf) {
+// 解出body
+function decode_cmd(proto_type, stype, ctype, cmd_buf) {
 	//str_of_buf = decrypt_cmd(str_or_buf); // 解密
-    if (str_or_buf.length < Proto_tools.header_size) {
+    if (cmd_buf.length < Proto_tools.header_size) {
         return null;
     }
 	if (proto_type == proto_man.PROTO_JSON) {
-		return json_decode(str_or_buf);
+		return _json_decode(str_or_buf);
 	}
-	if (str_of_buf.length < 4) {
+	if (cmd_buf.length < 4) {
 		return null;
 	}
 	var cmd = null; 
-	var stype = str_or_buf.readUInt16LE(0);//小尾读取
-	var ctype = str_or_buf.readUInt16LE(2);
-	var key = get_key(stype, ctype);
+    var key = get_key(stype, ctype);
 	if (!decoders[key]) {
 		return null;
 	}
-	cmd = decoders[key](str_or_buf);
+	cmd = decoders[key](cmd_buf);
 	return cmd;
 }
 // encode_func(body) return 二进制bufffer对象

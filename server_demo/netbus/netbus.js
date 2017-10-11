@@ -13,6 +13,7 @@ var netbus = {
 	start_ws_server: start_ws_server,
 	// session_send: session_send,
 	session_close: session_close,
+    connect_tcp_server: connect_tcp_server,
 };
 //全局保存session
 var global_session_list = {};
@@ -54,15 +55,17 @@ function on_session_exit(session) {
 // 如果是buf协议 str_or_buf Buffer对象;
 function on_session_recv_cmd(session, str_or_buf) {
     Log.info(str_or_buf);
-    Service_manager.on_recv_client_cmd(session,str_or_buf);
+    if(!Service_manager.on_recv_client_cmd(session,str_or_buf)){
+        session_close(session);
+    }
 }
 // 发送命令  修改成了session的结构体的方法
-function session_send_cmd(stype, ctype, body) {  //服务器类型 对应的操作 内容
+function session_send_cmd(stype, ctype, body, utag, proto_type) {  //服务器类型 对应的操作 内容
     if(!this.is_connected){
         return;
     }
     var cmd = null;
-    cmd = Proto_man.encode_cmd(this.proto_type, stype, ctype, body);
+    cmd = Proto_man.encode_cmd(utag,proto_type, stype, ctype, body);
     if (cmd) {
         this.send_encoded_cmd(cmd);
     }
@@ -127,20 +130,10 @@ function tcp_add_client_session_event(session, proto_type,is_encrypt) {
         while (offset + pkglen <= last_pkg.length) {//是否有一个完整的包
             var cmd_buf;
             // 收到了一个完整的数据包
-            if (session.proto_type == Proto_man.PROTO_JSON) {
-                var json_str = last_pkg.toString("utf8", offset + 2, offset + pkglen);
-                if (!json_str) {
-                    session_close(session);
-                    return;
-                }
-                on_session_recv_cmd(session, json_str);
-            }
-            else {
-                cmd_buf = Buffer.allocUnsafe(pkg_len - 2); // 2个长度信息
-                last_pkg.copy(cmd_buf, 0, offset + 2, offset + pkglen);
-                on_session_recv_cmd(session, cmd_buf);
-            }
-
+            cmd_buf = Buffer.allocUnsafe(pkg_len - 2); // 2个长度信息
+            last_pkg.copy(cmd_buf, 0, offset + 2, offset + pkglen);
+            on_session_recv_cmd(session, cmd_buf);
+  
             offset += pkglen; //偏移到下一个位置
             if (offset >= last_pkg.length) { //包刚好收完
                 break;
@@ -156,7 +149,6 @@ function tcp_add_client_session_event(session, proto_type,is_encrypt) {
             var last_data = Buffer.allocUnsafe(last_pkg.length - offset);
             last_pkg.copy(last_data, 0, offset, last_pkg.length);
             last_pkg = last_data;
-            console.log("1");
         }
         client_sock.last_pkg = last_pkg;
     });
@@ -166,7 +158,7 @@ function tcp_add_client_session_event(session, proto_type,is_encrypt) {
 function start_tcp_server(ip, port, prototype,is_encrypt) {
     Log.info("start tcp server..", ip, port);
     var server = Net.createServer(function (session) {
-        add_client_session_event(session, prototype,is_encrypt);//监听客户端事件
+        tcp_add_client_session_event(session, prototype,is_encrypt);//监听客户端事件
     });
     //监听在端口
     server.listen({  //option 对象集
@@ -239,6 +231,119 @@ function start_ws_server(ip, port, prototype,is_encrypt) {
         log.error("ws server listen close!!");
     }
     server.on("close", on_server_listen_close);
+}
+//-------------------------其他的服务器---------------------
+// session成功接入服务器
+var server_connect_list = {};
+//成功连接
+function on_session_connected(stype, session, proto_type, is_ws, is_encrypt) {
+    if (is_ws) {
+        Log.info("client connected!\n port:" + session._socket.remotePort + "\nhost:" + session._socket.remoteAddress);
+    } else {
+        Log.info("client connected!\n port:" + session.remotePort + "\nhost:" + session.remoteAddress);
+    }
+    session.last_pkg = null; // 表示我们存储的上一次没有处理完的TCP包;
+    session.is_ws = is_ws;
+    session.proto_type = proto_type; //协议类型
+    session.is_connected = true;       //是否已经连接
+    session.is_encrypt = is_encrypt; //是否属于加密通道
+    //扩展session的方法
+    session.send_encoded_cmd = session_send_encoded_cmd; //发送带加密的
+    session.send_cmd = session_send_cmd;  //发送cmd
+    // 加入到session列表里面
+    server_connect_list[stype] = session;
+    session.session_key = stype;
+    // end 
+}
+//失去连接
+function on_session_disconnect(session){
+    Log.info("server session disconnect!");
+    var stype = session.session_key;
+    session.is_connected = false;
+    session.last_pkg = null; 
+    session.session_key = null;
+    if (server_connect_list[stype]) {
+        server_connect_list[stype] = null;
+        delete server_connect_list[stype]; // 把这个key, value从{}里面删除
+    }
+}
+function on_recv_cmd_server_return(session, str_or_buf) {
+    if(!Service_manager.on_recv_server_return(session, str_or_buf)) {
+        session_close(session);
+    }
+}
+//连接到其他服务
+function connect_tcp_server(stype,host,port,protopyte,is_encrypt){
+    var session = Net.connect({
+        port: port,
+        host: host,
+    });
+    session.is_connected = false;
+    session.on("connect",function() {
+        on_session_connected(stype, session, protopyte, false, is_encrypt);
+    });
+    session.on("close", function() {
+        if (session.is_connected === true) {
+            on_session_disconnect(session); 
+        }
+        session.end();
+        // 重新连接到服务器
+        setTimeout(function() {
+            Log.warn("reconnect: ", stype, host, port, protopyte, is_encrypt);
+            connect_tcp_server(stype, host, port, protopyte, is_encrypt);
+        }, 3000);
+        // end 
+    });
+    session.on("data", function (data) {
+
+        if (!Buffer.isBuffer(data)) { // 不合法的数据
+            session_close(session);
+            return;
+        }
+
+        var last_pkg = client_sock.last_pkg;
+        if (last_pkg != null) { //说明上次还有数据剩余
+            var newbuf = Buffer.concat([last_pkg, data], last_pkg.length + data.length);
+            last_pkg = newbuf;
+        } else {
+            last_pkg = data;
+        }
+        var offset = 0;
+        var pkglen = netpkg.readPkgSize(last_pkg, offset);
+        if (pkglen < 0) {
+            return;
+        }
+        while (offset + pkglen <= last_pkg.length) {//是否有一个完整的包
+            var cmd_buf;
+            // 收到了一个完整的数据包
+            cmd_buf = Buffer.allocUnsafe(pkg_len - 2); // 2个长度信息
+            last_pkg.copy(cmd_buf, 0, offset + 2, offset + pkglen);
+            on_recv_cmd_server_return(session, cmd_buf);
+
+            offset += pkglen; //偏移到下一个位置
+            if (offset >= last_pkg.length) { //包刚好收完
+                break;
+            }
+            pkglen = netpkg.readPkgSize(last_pkg, offset);
+            if (pkglen < 0) {
+                break;
+            }
+        }
+        if (offset >= last_pkg.length) { //刚好收完包，剩下的为null
+            last_pkg = null;
+        } else { //剩下的存放进去下次处理
+            var last_data = Buffer.allocUnsafe(last_pkg.length - offset);
+            last_pkg.copy(last_data, 0, offset, last_pkg.length);
+            last_pkg = last_data;
+        }
+        client_sock.last_pkg = last_pkg;
+    });
+
+    session.on("error", function(err) {
+        
+    });
+
 
 }
+
 module.exports = netbus;
