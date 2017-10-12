@@ -87,21 +87,21 @@ function encode_cmd(utag,proto_type, stype, ctype, body) {
         }
         buf = encoders[key](stype, ctype, body);
     }
-    proto_tools.write_utag_inbuf(buf, utag);
-    proto_tools.write_prototype_inbuf(buf, proto_type);
+    Proto_tools.write_utag_inbuf(buf, utag);
+    Proto_tools.write_prototype_inbuf(buf, proto_type);
      //加密
     return buf;
 }
-function  decode_cmd_header(proto_type, cmd_buf) {
+function  decode_cmd_header(cmd_buf) {
     var cmd = {};
 
     if (cmd_buf.length < Proto_tools.header_size) {
         return null;
     } 
-    cmd[0] = Proto_tools.read_int16(cmd_buf, 0); //stype
-    cmd[1] = Proto_tools.read_int16(cmd_buf, 2); //ctype
-    cmd[2] = Proto_tools.read_uint32(cmd_buf, 4); //utag
-    cmd[3] = Proto_tools.read_int16(cmd_buf, 8); //proto_type
+	cmd[0] = Proto_tools.read_int16(cmd_buf, 0);
+	cmd[1] = Proto_tools.read_int16(cmd_buf, 2);
+	cmd[2] = Proto_tools.read_uint32(cmd_buf, 4);
+	cmd[3] = Proto_tools.read_int16(cmd_buf, 8);
     return cmd;
 }
 // 解出body
@@ -111,11 +111,10 @@ function decode_cmd(proto_type, stype, ctype, cmd_buf) {
         return null;
     }
 	if (proto_type == proto_man.PROTO_JSON) {
-		return _json_decode(str_or_buf);
+		return _json_decode(cmd_buf);
 	}
-	if (cmd_buf.length < 4) {
-		return null;
-	}
+
+
 	var cmd = null; 
     var key = get_key(stype, ctype);
 	if (!decoders[key]) {
@@ -124,6 +123,9 @@ function decode_cmd(proto_type, stype, ctype, cmd_buf) {
 	cmd = decoders[key](cmd_buf);
 	return cmd;
 }
+// buf协议的编码/解码管理  stype, ctype --> encoder/decoder
+var decoders = {}; // 保存当前我们buf协议所有的解码函数, stype,ctype --> decoder;
+var encoders = {}; // 保存当前我们buf协议所有的编码函数, stype, ctype --> encoder
 // encode_func(body) return 二进制bufffer对象
 function reg_buf_encoder(stype, ctype, encode_func) {
 	var key = get_key(stype, ctype);

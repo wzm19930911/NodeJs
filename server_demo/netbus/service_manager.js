@@ -23,7 +23,7 @@ function on_recv_client_cmd(session, cmd_buf) {
 	}
 	var stype, ctype, body , utag , proto_type; 
 	//解码解出对象
-	var cmd = Proto_man.decode_cmd_header(session.proto_type, cmd_buf);
+	var cmd = Proto_man.decode_cmd_header(cmd_buf);
 	if (!cmd) {
 		return false;
 	}
@@ -35,15 +35,16 @@ function on_recv_client_cmd(session, cmd_buf) {
 		return false;
 	}
 	if (service_modules[stype].is_transfer) {
-		service_modules[stype].on_recv_server_return(session,strype,ctype, null,utag,proto_type,cmd_buf);
+		service_modules[stype].on_recv_player_cmd(session,stype,ctype,null,utag,proto_type,cmd_buf);
+		return true;
 	}
+	var cmd = Proto_man.decode_cmd(proto_type, stype, ctype, cmd_buf);
 	if (!cmd) {
-	var cmd = Proto_man.decode_cmd(session.proto_type, cmd_buf);
 		return false;
 	}
 	// end 
 	body = cmd[2];
-	service_modules[stype].on_recv_player_cmd(session,strype,ctype,body,utag,proto_type,cmd_buf);
+	service_modules[stype].on_recv_player_cmd(session,stype,ctype,body,utag,proto_type,cmd_buf);
 	return true;
 }
 //玩家掉线了
@@ -60,23 +61,24 @@ function  on_recv_server_return (session, cmd_buf) {
 	}
 	var stype, ctype, body,utag , proto_type;   
 
-	var cmd = Proto_man.decode_cmd_header(session.proto_type, cmd_buf);
+	var cmd = Proto_man.decode_cmd_header(cmd_buf);
 	if (!cmd) {
 		return false;
 	}
 	stype = cmd[0]; 
 	ctype = cmd[1]; 
-
-	if (server_return_modules[stype].is_transfer) {
-		server_return_modules[stype].on_recv_server_return(session, stype, ctype, null, cmd_buf);
+	utag = cmd[2];
+	proto_type = cmd[3];
+	if (service_modules[stype].is_transfer) {
+		service_modules[stype].on_recv_server_return(session, stype, ctype, null,utag,cmd_buf);
 		return true;
 	}
-	var cmd = Proto_man.decode_cmd(session.proto_type, cmd_buf);
+	var cmd = Proto_man.decode_cmd(proto_type, stype, ctype, cmd_buf);
 	if (!cmd) {
 		return false;
 	}
 	body = cmd[2];
-	service_modules[stype].on_recv_player_cmd(session,strype,ctype,body,utag,proto_type,cmd_buf);
+	service_modules[stype].on_recv_server_return(session,stype,ctype,body,utag,proto_type,cmd_buf);
 	return true;
 }
 var service_manager = {
