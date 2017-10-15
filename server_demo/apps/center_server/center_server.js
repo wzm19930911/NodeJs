@@ -15,5 +15,6 @@ Netbus.start_tcp_server(center.host,center.post, false);
 
 Service_manager.register_service(Stype.Auth,Auth_service);
 //连接中心数据库
-Mysql_center.connect();
+var centerConfig = Game_config.center_database;
+Mysql_center.connect(centerConfig.host,centerConfig.port,centerConfig.dbname,centerConfig.uname,centerConfig.upwd);
 

@@ -221,12 +221,12 @@ function start_ws_server(ip, port,is_encrypt) {
     server.on("connection", on_server_client_comming);
     //监听出错
     function on_server_listen_error(err) {
-        log.error("ws server listen error!!");
+        Log.error("ws server listen error!!");
     }
     server.on("error", on_server_listen_error);
     //关闭
     function on_server_listen_close(err) {
-        log.error("ws server listen close!!");
+        Log.error("ws server listen close!!");
     }
     server.on("close", on_server_listen_close);
 }
@@ -316,7 +316,7 @@ function connect_tcp_server(stype,host,port,is_encrypt){
         while (offset + pkglen <= last_pkg.length) {//是否有一个完整的包
             var cmd_buf;
             // 收到了一个完整的数据包
-            cmd_buf = Buffer.allocUnsafe(pkg_len - 2); // 2个长度信息
+            cmd_buf = Buffer.allocUnsafe(pkglen - 2); // 2个长度信息
             last_pkg.copy(cmd_buf, 0, offset + 2, offset + pkglen);
             on_recv_cmd_server_return(session, cmd_buf);
 

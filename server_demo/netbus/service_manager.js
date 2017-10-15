@@ -70,7 +70,7 @@ function  on_recv_server_return (session, cmd_buf) {
 	utag = cmd[2];
 	proto_type = cmd[3];
 	if (service_modules[stype].is_transfer) {
-		service_modules[stype].on_recv_server_return(session, stype, ctype, null,utag,cmd_buf);
+		service_modules[stype].on_recv_server_return(session, stype, ctype, null,utag,proto_type,cmd_buf);
 		return true;
 	}
 	var cmd = Proto_man.decode_cmd(proto_type, stype, ctype, cmd_buf);
